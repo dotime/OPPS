@@ -26,6 +26,7 @@ def run(K=Yahoo_K,N=Yahoo_N,B=Yahoo_B,pb1=Yahoo_pb1,pb2=Yahoo_pb2,count=Yahoo_co
     l7 = []
     l8 = []
     l9 = []
+    # 再添加一个策略
     for i in range(player.count):
         player.create_arm_list()
         r1, c1, t1, dic1 = player.policy_bpp()

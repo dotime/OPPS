@@ -1,12 +1,12 @@
 
-dataset_address = "D:\OneDrive\文档\latex\第八篇\simulation"
+dataset_address = "..\data"
 result_address = 'D:\OneDrive\文档\latex\第八篇\simulation\SimulationResults'
 T = 60
 n = 100
 m = 100
 size = 5
 B = 400
-count = 20
+count = 800 # 大约一个count是10s
 variance = 0.5
 
 '''

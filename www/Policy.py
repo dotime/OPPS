@@ -2,11 +2,13 @@ import math
 import copy
 import numpy as np
 import pandas as pd
-from  conf import *
+from conf import *
 import random
 from Worker import *
 import itertools
 import time
+from scipy.optimize import newton
+
 
 class Policy:
     def __init__(self):
@@ -18,9 +20,9 @@ class Policy:
         self.count = count
         self.variance = variance
 
-        self.worker_list=[]
-        self.task_list=[]
-        self.task_bundle_list=[]
+        self.worker_list = []
+        self.task_list = []
+        self.task_bundle_list = []
 
     # -------------------------------several assistant functions-----------------------------------
     def reset(self):
@@ -32,13 +34,13 @@ class Policy:
         self.count = count
         self.variance = variance
 
-    def calDistance(self,i,j):
-        return math.sqrt((i.x-j.x)**2+(i.y-j.y)**2)
+    def calDistance(self, i, j):
+        return math.sqrt((i.x - j.x) ** 2 + (i.y - j.y) ** 2)
 
-    def calCost(self, worker,task_list):
-        task_sequence=[]
-        temp_list=copy.deepcopy(task_list)
-        sum=0
+    def calCost(self, worker, task_list):
+        task_sequence = []
+        temp_list = copy.deepcopy(task_list)
+        sum = 0
         min = 100000000000
         index = -1
         for j in range(len(temp_list)):
@@ -47,39 +49,40 @@ class Policy:
             if temp <= min:
                 min = temp
                 index = j
-        temp_task=temp_list[index]
+        temp_task = temp_list[index]
         task_sequence.append(temp_list[index])
         temp_list.remove(temp_list[index])
         sum = sum + min
-        while(len(temp_list)>0):
-            min=100000000000
-            index=-1
+        while (len(temp_list) > 0):
+            min = 100000000000
+            index = -1
             for j in range(len(temp_list)):
-                task=temp_list[j]
-                temp=self.calDistance(temp_task,task)
-                if temp<=min:
-                    min=temp
-                    index=j
-            temp_task=temp_list[index]
+                task = temp_list[j]
+                temp = self.calDistance(temp_task, task)
+                if temp <= min:
+                    min = temp
+                    index = j
+            temp_task = temp_list[index]
             task_sequence.append(temp_list[index])
             temp_list.remove(temp_list[index])
-            sum=sum+min
+            sum = sum + min
         return sum, task_sequence
 
     '''Calculate the conflicting count among workers'''
+
     def ifconflict_1(self, worker_list):
-        count=0
+        count = 0
         for i in range(len(worker_list)):
-            w1=worker_list[i]
-            for j in range(i+1,len(worker_list)):
-                w2=worker_list[j]
-                x=[i for i in w1.bundle if i in w2.bundle]
-                if len(x)>0:
-                    count=count+1
+            w1 = worker_list[i]
+            for j in range(i + 1, len(worker_list)):
+                w2 = worker_list[j]
+                x = [i for i in w1.bundle if i in w2.bundle]
+                if len(x) > 0:
+                    count = count + 1
         return count
 
-    def ifconflict_2(self,worker,worker_list):
-        count=0
+    def ifconflict_2(self, worker, worker_list):
+        count = 0
         for temp_worker in worker_list:
             x = [i for i in worker.bundle if i in temp_worker.bundle]
             if len(x) > 0:
@@ -87,34 +90,34 @@ class Policy:
         return count
 
     def calUtility(self, list_list):
-        utility=[]
+        utility = []
         for list in list_list:
             utility.append(sum(i.offline_utility for i in list))
         return utility
 
     def calBudget(self):
         worker_list, task_list = self.loadWorkers(city='Tokyo')
-        B_list=range(50,901,50)
-        d={}
+        B_list = range(50, 901, 50)
+        d = {}
         for b in B_list:
             u3 = self.off_policy_TRAC_2(worker_list=worker_list, budget=b)
-            d[b]='{},{}'.format(len(u3),len(worker_list))
+            d[b] = '{},{}'.format(len(u3), len(worker_list))
         return d
 
     def caln(self):
-        n_list=range(40,101,10)
-        d={}
+        n_list = range(40, 101, 10)
+        d = {}
         for x in n_list:
-            self.n=x
+            self.n = x
             worker_list, task_list = self.loadWorkers(city='Tokyo')
             u3 = self.off_policy_TRAC_2(worker_list=worker_list, budget=self.B)
-            d[x]='winner size:{} worker size:{} budget used:{} utility:{}'.\
-                format(len(u3),len(worker_list),sum([i.cost for i in u3]), sum([i.offline_utility for i in u3]))
+            d[x] = 'winner size:{} worker size:{} budget used:{} utility:{}'. \
+                format(len(u3), len(worker_list), sum([i.cost for i in u3]), sum([i.offline_utility for i in u3]))
         return d
 
-
-#-------------------------------initialization functon-----------------------------------
+    # -------------------------------initialization functon-----------------------------------
     '''load workers from datasets'''
+
     def loadWorkers(self, city):
         worker_list = []
         task_list = []
@@ -137,7 +140,8 @@ class Policy:
             cap = temp.iloc[0, 4]
             # cap = capacity
             if count < self.n:
-                worker = Worker(x=longt, y=lat, id=i, capacity=cap, B=self.B, T=self.T, n=self.n, variance=self.variance)
+                worker = Worker(x=longt, y=lat, id=i, capacity=cap, B=self.B, T=self.T, n=self.n,
+                                variance=self.variance)
                 worker_list.append(worker)
             elif count < self.n + self.m:
                 task = Task(id=i, x=longt, y=lat)
@@ -157,72 +161,73 @@ class Policy:
 
     # -------------------------------offline policies-----------------------------------
     def off_policy_CAP(self, worker_list, budget=B):
-        sum_cost=0
-        sum_utility=0
-        temp_worker_list=copy.deepcopy(worker_list)
-        temp_worker_list = sorted(temp_worker_list, key=lambda x: x.offline_utility/math.sqrt(x.cost), reverse=True)
-        winner_list=[]
-        while(budget>sum_cost):
-            if(len(temp_worker_list)==0):
+        sum_cost = 0
+        sum_utility = 0
+        temp_worker_list = copy.deepcopy(worker_list)
+        temp_worker_list = sorted(temp_worker_list, key=lambda x: x.offline_utility / math.sqrt(x.cost), reverse=True)
+        winner_list = []
+        while (budget > sum_cost):
+            if (len(temp_worker_list) == 0):
                 print('------Error: Too much Budget and too few workers')
-            worker=temp_worker_list.pop(0)
-            if self.ifconflict_2(worker=worker,worker_list=winner_list)==0:
+            worker = temp_worker_list.pop(0)
+            if self.ifconflict_2(worker=worker, worker_list=winner_list) == 0:
                 winner_list.append(worker)
-                sum_cost=sum_cost+worker.cost
-                sum_utility=sum_utility+worker.offline_utility
+                sum_cost = sum_cost + worker.cost
+                sum_utility = sum_utility + worker.offline_utility
             # else:
             #     print('worker {} conflicted with winners.'.format(worker.id))
-        winner_list=winner_list[:-1]
+        winner_list = winner_list[:-1]
         return winner_list
 
     def off_policy_Optimal(self, worker_list, budget=B):
-        sum_utility=0
-        winner_set=[]
-        temp_worker_list=copy.deepcopy(worker_list)
+        sum_utility = 0
+        winner_set = []
+        temp_worker_list = copy.deepcopy(worker_list)
         for x in range(len(temp_worker_list)):
-            for temp_list in itertools.combinations(temp_worker_list,x+1):
-                if sum([i.cost for i in temp_list])<budget:
-                    temp=sum([i.offline_utility for i in temp_list])
-                    if temp>sum_utility:
+            for temp_list in itertools.combinations(temp_worker_list, x + 1):
+                if sum([i.cost for i in temp_list]) < budget:
+                    temp = sum([i.offline_utility for i in temp_list])
+                    if temp > sum_utility:
                         sum_utility = temp
                         winner_set = temp_list
         return winner_set, sum_utility
 
     def off_policy_CPP(self, worker_list, budget=B):
-        sum_cost=0
-        sum_utility=0
-        temp_worker_list=copy.deepcopy(worker_list)
-        temp_worker_list = sorted(temp_worker_list, key=lambda x: x.offline_utility/math.sqrt(x.cost), reverse=True)
-        winner_list=[]
-        while(budget>sum_cost):
-            if(len(temp_worker_list)==0):
+        sum_cost = 0
+        sum_utility = 0
+        temp_worker_list = copy.deepcopy(worker_list)
+        temp_worker_list = sorted(temp_worker_list, key=lambda x: x.offline_utility / math.sqrt(x.cost), reverse=True)
+        winner_list = []
+        while (budget > sum_cost):
+            if (len(temp_worker_list) == 0):
                 print('------Error: Too much Budget and too few workers')
-            worker=temp_worker_list.pop(0)
-            if self.ifconflict_2(worker=worker,worker_list=winner_list)==0:# no conflict
+            worker = temp_worker_list.pop(0)
+            if self.ifconflict_2(worker=worker, worker_list=winner_list) == 0:  # no conflict
                 winner_list.append(worker)
-                sum_cost=sum_cost+worker.cost
-                sum_utility=sum_utility+worker.offline_utility
+                sum_cost = sum_cost + worker.cost
+                sum_utility = sum_utility + worker.offline_utility
             else:
                 for w in winner_list:
-                    if len([i for i in w.bundle if i in worker.bundle])>0:
-                        w.payment=(w.offline_utility/worker.offline_utility)**2*worker.cost
-                        w.other_payment=w.payment
+                    if len([i for i in w.bundle if i in worker.bundle]) > 0:
+                        w.payment = (w.offline_utility / worker.offline_utility) ** 2 * worker.cost
+                        w.other_payment = w.payment
                         # print("*******conflict******", w.payment, w.cost)
-        kk=winner_list[-1]
-        winner_list=winner_list[:-1]
+        kk = winner_list[-1]
+        winner_list = winner_list[:-1]
 
         '''pay each winner'''
         temp_worker_list = copy.deepcopy(worker_list)
-        indicator_list=[]
+        indicator_list = []
         for w in winner_list:
-            if w.payment>0:
+            if w.payment > 0:
                 continue
-            list_without_w=[i for i in temp_worker_list if i.id!=w.id]
-            winner_without_w=self.off_policy_CAP(worker_list=list_without_w,budget=self.B)
-            winner_without_w=sorted(winner_without_w, key=lambda x: x.offline_utility/math.sqrt(x.cost), reverse=True)
-            if w.payment<=0:
+            list_without_w = [i for i in temp_worker_list if i.id != w.id]
+            winner_without_w = self.off_policy_CAP(worker_list=list_without_w, budget=self.B)
+            winner_without_w = sorted(winner_without_w, key=lambda x: x.offline_utility / math.sqrt(x.cost),
+                                      reverse=True)
+            if w.payment <= 0:
                 k = winner_without_w.pop(-1)
-                k=kk
+                k = kk
                 w.payment = (w.offline_utility / k.offline_utility) ** 2 * k.cost
                 w.other_payment = 0
                 # print('----2--A case occurs where payment<0---------',len(winner_without_w),len(winner_list))
@@ -235,20 +240,20 @@ class Policy:
                 #         break
         return winner_list
 
-    def off_policy_random(self,worker_list,budget=B):
+    def off_policy_random(self, worker_list, budget=B):
         sum_cost = 0
         sum_utility = 0
         temp_worker_list = copy.deepcopy(worker_list)
         winner_list = []
         while (budget > sum_cost):
-            random_index=random.randint(0, len(temp_worker_list)-1)
+            random_index = random.randint(0, len(temp_worker_list) - 1)
             worker = temp_worker_list.pop(random_index)
             if self.ifconflict_2(worker=worker, worker_list=winner_list) == 0:
                 winner_list.append(worker)
                 sum_cost = sum_cost + worker.cost
                 sum_utility = sum_utility + worker.offline_utility
             # else:
-                # print('worker {} conflicted with winners.'.format(worker.id))
+            # print('worker {} conflicted with winners.'.format(worker.id))
         winner_list = winner_list[:-1]
         return winner_list
 
@@ -265,7 +270,7 @@ class Policy:
                 sum_cost = sum_cost + worker.cost
                 sum_utility = sum_utility + worker.offline_utility
             else:
-                if self.size>1:
+                if self.size > 1:
                     sum_cost = sum_cost + worker.cost  # uneffective worker
         winner_list = winner_list[:-1]
         return winner_list
@@ -283,7 +288,7 @@ class Policy:
                 sum_cost = sum_cost + worker.cost
                 sum_utility = sum_utility + worker.offline_utility
             # else:
-                # print('worker {} conflicted with winners.'.format(worker.id))
+            # print('worker {} conflicted with winners.'.format(worker.id))
         winner_list = winner_list[:-1]
         return winner_list
 
@@ -300,7 +305,7 @@ class Policy:
                 sum_cost = sum_cost + worker.cost
                 sum_utility = sum_utility + worker.offline_utility
             # else:
-                # print('worker {} conflicted with winners.'.format(worker.id))
+            # print('worker {} conflicted with winners.'.format(worker.id))
         winner_list = winner_list[:-1]
         return winner_list
 
@@ -318,11 +323,11 @@ class Policy:
                 sum_cost = sum_cost + worker.cost
                 sum_utility = sum_utility + worker.offline_utility
             # else:
-                # print('worker {} conflicted with winners.'.format(worker.id))
+            # print('worker {} conflicted with winners.'.format(worker.id))
         winner_list = winner_list[:-1]
         return winner_list
 
- # -------------------------------online policies-----------------------------------
+    # -------------------------------online policies-----------------------------------
     def calK(self, worker_list, budget=B):
         sum_cost = 0
         sum_utility = 0
@@ -336,43 +341,43 @@ class Policy:
                 sum_cost = sum_cost + worker.cost
                 sum_utility = sum_utility + worker.offline_utility
             # else:
-                # print('worker {} conflicted with winners.'.format(worker.id))
+            # print('worker {} conflicted with winners.'.format(worker.id))
         winner_list = winner_list[:-1]
-        K=len(winner_list)
+        K = len(winner_list)
         return K
 
-    def calCriteria_OACP(self,worker, K, t, worker_list):
-        average=np.mean(worker.reward_list)
+    def calCriteria_OACP(self, worker, K, t, worker_list):
+        average = np.mean(worker.reward_list)
         c_min = np.max([i.cost for i in worker_list])
-        e=math.sqrt((B/c_min+1)*math.log(t, math.e)/len(worker.reward_list))
-        return average+e
+        e = math.sqrt((B / c_min + 1) * math.log(t, math.e) / len(worker.reward_list))
+        return average + e
 
     def online_policy_OACP(self, worker_list, budget=B, Time=T):
-        temp_worker_list=copy.deepcopy(worker_list)
+        temp_worker_list = copy.deepcopy(worker_list)
         # K=self.calK(worker_list=temp_worker_list,budget=budget)
         # print('K:{}'.format(K))
-        utility_dict={}
-        t=1
-        while(t < Time):
-            if (t%10==0):
-                print('----OACP, t:',t)
+        utility_dict = {}
+        t = 1
+        while (t < Time):
+            if (t % 10 == 0):
+                print('----OACP, t:', t)
             # print('t: {}'.format(t))
             for i in temp_worker_list:
-                i.offline_utility=self.calCriteria_OACP(worker=i,K=0,t=t,worker_list=temp_worker_list)
-            temp_winner_list=self.off_policy_CAP(worker_list=temp_worker_list, budget=budget)
+                i.offline_utility = self.calCriteria_OACP(worker=i, K=0, t=t, worker_list=temp_worker_list)
+            temp_winner_list = self.off_policy_CAP(worker_list=temp_worker_list, budget=budget)
             for winner in temp_winner_list:
-                reward=winner.online_utility_list[t]
-                while(reward<0):
+                reward = winner.online_utility_list[t]
+                while (reward < 0):
                     reward = np.random.normal(loc=winner.mean, scale=variance, size=1)[0]
                 winner.reward_list.append(reward)
             utility_dict[t] = sum([i.reward_list[-1] for i in temp_winner_list])
-            t=t+1
+            t = t + 1
         sum_utility = sum([utility_dict[i] for i in utility_dict.keys()])
         return sum_utility, utility_dict
 
     def online_policy_Optimal(self, worker_list, budget=B, Time=T):
         temp_worker_list = copy.deepcopy(worker_list)
-        utility_dict={}
+        utility_dict = {}
         t = 1
         while (t <= Time):
             # print('t: {}'.format(t))
@@ -387,96 +392,180 @@ class Policy:
         sum_utility = sum([utility_dict[i] for i in utility_dict.keys()])
         return sum_utility, utility_dict
 
-    def calCriteria_UCB_MB(self,worker, K, t, worker_list):
-        average=np.mean(worker.reward_list)
-        c_min=np.min([i.cost for i in worker_list])
-        a=math.sqrt((n+1)*math.log(t,math.e)/len(worker.reward_list))
-        b=(1+1/c_min)/(c_min-a)
-        e=a*b*worker.cost
-        return average+e
+    def calCriteria_UCB_MB(self, worker, K, t, worker_list):
+        average = np.mean(worker.reward_list)
+        c_min = np.min([i.cost for i in worker_list])
+        a = math.sqrt((n + 1) * math.log(t, math.e) / len(worker.reward_list))
+        b = (1 + 1 / c_min) / (c_min - a)
+        e = a * b * worker.cost
+        return average + e
 
     def online_policy_UCB_MB(self, worker_list, budget=B, Time=T):
-        temp_worker_list=copy.deepcopy(worker_list)
+        temp_worker_list = copy.deepcopy(worker_list)
         # K=self.calK(worker_list=temp_worker_list,budget=budget)
         K = budget / np.mean([i.cost for i in temp_worker_list])
         # print('K:{}'.format(K))
-        utility_dict={}
-        t=1
-        while(t <= Time):
+        utility_dict = {}
+        t = 1
+        while (t <= Time):
             # print('t: {}'.format(t))
             for i in temp_worker_list:
-                i.offline_utility=self.calCriteria_UCB_MB(worker=i,K=0,t=t,worker_list=temp_worker_list)
-            temp_winner_list=self.off_policy_TRAC_2(worker_list=temp_worker_list, budget=budget)
+                i.offline_utility = self.calCriteria_UCB_MB(worker=i, K=0, t=t, worker_list=temp_worker_list)
+            temp_winner_list = self.off_policy_TRAC_2(worker_list=temp_worker_list, budget=budget)
             for winner in temp_winner_list:
-                reward=winner.online_utility_list[t]
-                while(reward<0):
+                reward = winner.online_utility_list[t]
+                while (reward < 0):
                     reward = np.random.normal(loc=winner.mean, scale=winner.variance, size=1)[0]
                 winner.reward_list.append(reward)
             utility_dict[t] = sum([i.reward_list[-1] for i in temp_winner_list])
             # utility_dict[t] = sum([i.reward_list[-1] for i in temp_winner_list[:-1]])
-            t=t+1
+            t = t + 1
         sum_utility = sum([utility_dict[i] for i in utility_dict.keys()])
         return sum_utility, utility_dict
 
-    def calCriteria_AUCB(self,worker, K, t):
-        average=np.mean(worker.reward_list)
-        a=math.sqrt((n+1)*math.log(t,math.e)/len(worker.reward_list))
-        e=a/worker.cost
+    def calCriteria_AUCB(self, worker, K, t):
+        average = np.mean(worker.reward_list)
+        a = math.sqrt((n + 1) * math.log(t, math.e) / len(worker.reward_list))
+        e = a / worker.cost
         # e=a/worker.cost
         return average + e
 
     def online_policy_AUCB(self, worker_list, budget=B, Time=T):
-        temp_worker_list=copy.deepcopy(worker_list)
+        temp_worker_list = copy.deepcopy(worker_list)
         # K=self.calK(worker_list=temp_worker_list,budget=budget)
-        K=budget/np.mean([i.cost for i in temp_worker_list])
+        K = budget / np.mean([i.cost for i in temp_worker_list])
         # print('K:{}'.format(K))
-        utility_dict={}
-        t=1
-        while(t <= Time):
+        utility_dict = {}
+        t = 1
+        while (t <= Time):
             # print('t: {}'.format(t))
             for i in temp_worker_list:
-                i.offline_utility=self.calCriteria_AUCB(worker=i,K=0,t=t)
-            temp_winner_list=self.off_policy_TRAC_2(worker_list=temp_worker_list, budget=budget)
+                i.offline_utility = self.calCriteria_AUCB(worker=i, K=0, t=t)
+            temp_winner_list = self.off_policy_TRAC_2(worker_list=temp_worker_list, budget=budget)
             for winner in temp_winner_list:
-                reward=winner.online_utility_list[t]
-                while(reward<0):
+                reward = winner.online_utility_list[t]
+                while (reward < 0):
                     reward = np.random.normal(loc=winner.mean, scale=winner.variance, size=1)[0]
                 winner.reward_list.append(reward)
             utility_dict[t] = sum([i.reward_list[-1] for i in temp_winner_list])
             # utility_dict[t] = sum([i.reward_list[-1] for i in temp_winner_list[:-1]])
-            t=t+1
+            t = t + 1
         sum_utility = sum([utility_dict[i] for i in utility_dict.keys()])
         return sum_utility, utility_dict
 
-    def calCriteria_LLR(self,worker, K, t):
-        average=np.mean(worker.reward_list)
-        a=math.sqrt((n+1)*math.log(t,math.e)/len(worker.reward_list))
-        e=a
+    def calCriteria_LLR(self, worker, K, t):
+        average = np.mean(worker.reward_list)
+        a = math.sqrt((n + 1) * math.log(t, math.e) / len(worker.reward_list))
+        e = a
         return average + e
 
     def online_policy_LLR(self, worker_list, budget=B, Time=T):
-        temp_worker_list=copy.deepcopy(worker_list)
+        temp_worker_list = copy.deepcopy(worker_list)
         # K=self.calK(worker_list=temp_worker_list,budget=budget)
         # print('K:{}'.format(K))
-        utility_dict={}
-        t=1
-        while(t <= Time):
+        utility_dict = {}
+        t = 1
+        while (t <= Time):
             # print('t: {}'.format(t))
             for i in temp_worker_list:
-                i.offline_utility=self.calCriteria_LLR(worker=i,K=0,t=t)
-            temp_winner_list=self.off_policy_TRAC(worker_list=temp_worker_list, budget=budget)
+                i.offline_utility = self.calCriteria_LLR(worker=i, K=0, t=t)
+            temp_winner_list = self.off_policy_TRAC(worker_list=temp_worker_list, budget=budget)
             for winner in temp_winner_list:
-                reward=winner.online_utility_list[t]
-                while(reward<0):
+                reward = winner.online_utility_list[t]
+                while (reward < 0):
                     reward = np.random.normal(loc=winner.mean, scale=winner.variance, size=1)[0]
                 winner.reward_list.append(reward)
             utility_dict[t] = sum([i.reward_list[-1] for i in temp_winner_list])
-            t=t+1
-        sum_utility=sum([utility_dict[i] for i in utility_dict.keys()])
+            t = t + 1
+        sum_utility = sum([utility_dict[i] for i in utility_dict.keys()])
         return sum_utility, utility_dict
+    def dep_round(self,k,p)->list:
+        '''
+            :param k: distinct actions
+            :param p: probability
+            :return:
+            '''
+        # there is an i with 0<p_i<1,then
+        while any(0 < p_i < 1 for p_i in p):
+            # get the indices satisfy 0<p<1
+            indices = np.where((p > 0) & (p < 1))[0]
+            # just one element, break
+            if len(indices) <= 1: break
+            #  get the two indices
+            i = indices[0]
+            j = indices[1]
+            # get the alpha and bet
+            alpha = min([1 - p[i], p[j]])
+            beta = min([p[i], 1 - p[j]])
 
- # ----------------------------evaluatation function-------------------------
-#------offline-------
+            # assign values based on probability
+            corn = np.random.uniform(0, 1)
+            if corn < beta / (alpha + beta):
+                p[i], p[j] = p[i] + alpha, p[j] - alpha
+            else:
+                p[i], p[j] = p[i] - beta, p[j] + beta
+        return [i for i in range(len(p)) if abs(p[i] - 1) < 1e-8]
+    def online_policy_Exp3M(self, worker_list, budget=B, Time=T,gamma=0.3):
+        # get the worker list
+        workers = copy.deepcopy(worker_list)
+        # determine the number of workers and the number of participants
+        K = len(workers)
+        k = budget / np.mean([i.cost for i in workers])
+        # Initialization
+        w = np.ones([K, Time + 1])
+        w_pi = np.ones([K, Time + 1])
+        x = np.zeros([K, Time + 1])
+
+        utility_dict = {}
+        for t in range(1, Time + 1):
+            w_t = w[:, t]
+            if np.max(w_t) > (1 / k - gamma / K) * np.sum(w_t) / (1 - gamma):
+                # deside the alpha to satisfy the equation
+                def equation(alpha):
+                    return alpha / (len(w_t[w_t >= alpha]) * alpha + np.sum(w_t[w_t < alpha])) - (1 / k - gamma / K) / (
+                            1 - gamma)
+
+                # solve the equation
+                alpha = newton(equation, x0=(min(w_t) + max(w_t)) / 2)
+
+                S_zero = [i for i in range(K) if w_t[i] >= alpha]
+                w_pi[S_zero, t] = alpha
+            else:
+                S_zero = []
+
+            # get the complement of set S_zero
+            S_comp = list(set(range(K)) - set(S_zero))
+            # count w'
+            w_pi[S_comp, t] = w_t[S_comp]
+
+            # get the probability
+            p = k * ((1 - gamma) * w_pi[:, t] / np.sum(w_pi[:, t]) + gamma / K)
+            # use selection algorithm to get the set S_t
+            S = self.dep_round(k,p)
+            # create winner list
+            winner_list=[]
+            for i in S:
+                winner_list.append(workers[i])
+            # receive the rewards from S_t
+            for winner in winner_list:
+                reward = winner.online_utility_list[t]
+                while reward<0:
+                    reward = np.random.normal(loc=winner.mean, scale=winner.variance, size=1)[0]
+                winner.reward_list.append(reward)
+            # store the rewards
+            x[S,t]=np.array([i.reward_list[-1] for i in winner_list])
+            utility_dict[t] = sum([i.reward_list[-1] for i in winner_list])
+            # update the w
+            # get the x_hat
+            x_hat = np.zeros([K])
+            x_hat[S] = x[S, t] / p[S]
+            if t != Time:
+                w[S_zero, t + 1] = w[S_zero, t]
+                w[S_comp, t + 1] = w[S_comp, t] * np.exp(k * gamma * x_hat[S_comp] / K)
+        sum_utility = sum([utility_dict[i] for i in utility_dict.keys()])
+        return sum_utility, utility_dict
+    # ----------------------------evaluatation function-------------------------
+    # ------offline-------
     def run_offline(self, city='Tokyo'):
         dict5 = {}
         for i in range(self.count):
@@ -487,7 +576,7 @@ class Policy:
             u3 = self.off_policy_TRAC(worker_list=worker_list, budget=self.B)
             u4 = self.off_policy_greedy(worker_list=worker_list, budget=self.B)
             u5 = self.off_policy_TRAC_2(worker_list=worker_list, budget=self.B)
-            dict5[i] = [sum([i.offline_utility for i in u1]),sum([i.offline_utility for i in u2]),
+            dict5[i] = [sum([i.offline_utility for i in u1]), sum([i.offline_utility for i in u2]),
                         sum([i.offline_utility for i in u3]), sum([i.offline_utility for i in u4]),
                         sum([i.offline_utility for i in u5])]
         u1 = np.mean([list(dict5[i])[0] for i in dict5.keys()])
@@ -498,98 +587,98 @@ class Policy:
         return [u1, u2, u3, u4, u5]
 
     def run_offline_n(self, city='Tokyo'):
-        path_utility = result_address+'\offline_n_'+city+'.txt'
+        path_utility = result_address + '\offline_n_' + city + '.txt'
         self.reset()
         print('B:{} n:{} m:{}'.format(self.B, self.n, self.m))
-        str='%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('n', 'CAP', 'random', 'TRAC', 'greedy','TRAC2')
+        str = '%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('n', 'CAP', 'random', 'TRAC', 'greedy', 'TRAC2')
         print(str)
         with open(path_utility, 'a') as f:
             f.write(str)
-        n_list = [i for i in range(60,121,10)]
+        n_list = [i for i in range(60, 121, 10)]
         for x in n_list:
-            self.n=x
+            self.n = x
             utility_list = self.run_offline(city=city)
             print('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f' % (
                 self.n, utility_list[0], utility_list[1], utility_list[2], utility_list[3], utility_list[4]))
             with open(path_utility, 'a') as f:
                 f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
-                self.n, utility_list[0], utility_list[1], utility_list[2], utility_list[3], utility_list[4]))
+                    self.n, utility_list[0], utility_list[1], utility_list[2], utility_list[3], utility_list[4]))
 
     def run_offline_B(self, city='Tokyo'):
-        path_utility = result_address+'\offline_B_'+city+'.txt'
+        path_utility = result_address + '\offline_B_' + city + '.txt'
         self.reset()
         print('B:{} n:{} m:{}'.format(self.B, self.n, self.m))
-        str='%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('B', 'CAP', 'random', 'TRAC', 'greedy','TRAC2')
+        str = '%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('B', 'CAP', 'random', 'TRAC', 'greedy', 'TRAC2')
         print(str)
         with open(path_utility, 'a') as f:
             f.write(str)
-        B_list = [i for i in range(100,701,100)]
+        B_list = [i for i in range(100, 701, 100)]
         for x in B_list:
-            self.B=x
+            self.B = x
             utility_list = self.run_offline(city=city)
             print('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f' % (
                 self.B, utility_list[0], utility_list[1], utility_list[2], utility_list[3], utility_list[4]))
             with open(path_utility, 'a') as f:
                 f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
-                self.B, utility_list[0], utility_list[1], utility_list[2], utility_list[3], utility_list[4]))
+                    self.B, utility_list[0], utility_list[1], utility_list[2], utility_list[3], utility_list[4]))
 
     def run_offline_time(self, city='Tokyo'):
-        path_utility = result_address+'\offline_time_'+city+'.txt'
+        path_utility = result_address + '\offline_time_' + city + '.txt'
         self.reset()
         print('B:{} n:{} m:{}'.format(self.B, self.n, self.m))
-        str='%-18s%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('B', 'n', 'time_cap', 'time_opt', 'utility_cap','utility_opt','ratio')
+        str = '%-18s%-18s%-18s%-18s%-18s%-18s%-18s\n' % (
+        'B', 'n', 'time_cap', 'time_opt', 'utility_cap', 'utility_opt', 'ratio')
         print(str)
         with open(path_utility, 'a') as f:
             f.write(str)
-        B_list = [i for i in range(50,151,50)]
-        self.n=50
+        B_list = [i for i in range(50, 151, 50)]
+        self.n = 50
         for x in B_list:
-            self.B=x
+            self.B = x
             worker_list, task_list = self.loadWorkers(city=city)
-            t1=time.time()
+            t1 = time.time()
             u1 = self.off_policy_CAP(worker_list=worker_list, budget=self.B)
             t2 = time.time()
-            list2,u2=self.off_policy_Optimal(worker_list=worker_list, budget=self.B)
+            list2, u2 = self.off_policy_Optimal(worker_list=worker_list, budget=self.B)
             t3 = time.time()
             print('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f' % (
-                self.B, self.n, t2-t1, t3-t2, u1, u2, u1/u2))
+                self.B, self.n, t2 - t1, t3 - t2, u1, u2, u1 / u2))
             with open(path_utility, 'a') as f:
                 f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
-                self.B, self.n, t2-t1, t3-t2, u1, u2,u1/u2))
-
+                    self.B, self.n, t2 - t1, t3 - t2, u1, u2, u1 / u2))
 
     def run_offline_bundle(self, city='Tokyo'):
-        path_utility = result_address+'\offline_bundle_'+city+'.txt'
+        path_utility = result_address + '\offline_bundle_' + city + '.txt'
         self.reset()
         print('B:{} n:{} m:{}'.format(self.B, self.n, self.m))
-        str='%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('bundle', 'CAP', 'random', 'TRAC', 'greedy','TRAC2')
+        str = '%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('bundle', 'CAP', 'random', 'TRAC', 'greedy', 'TRAC2')
         print(str)
         with open(path_utility, 'a') as f:
             f.write(str)
-        bundle_list = [i for i in range(1,6)]
+        bundle_list = [i for i in range(1, 6)]
         for x in bundle_list:
-            self.size=x
+            self.size = x
             utility_list = self.run_offline(city=city)
             print('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f' % (
                 self.size, utility_list[0], utility_list[1], utility_list[2], utility_list[3], utility_list[4]))
             with open(path_utility, 'a') as f:
                 f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
-                self.size, utility_list[0], utility_list[1], utility_list[2], utility_list[3], utility_list[4]))
+                    self.size, utility_list[0], utility_list[1], utility_list[2], utility_list[3], utility_list[4]))
 
     def run_offline_payment(self, city='Tokyo'):
-        path_utility = result_address+'\offline_payment_'+city+'.txt'
+        path_utility = result_address + '\offline_payment_' + city + '.txt'
         self.reset()
         print('B:{} n:{} m:{}'.format(self.B, self.n, self.m))
-        str='%-18s%-18s%-18s%-18s%-18s\n' % ('B', 'n', 'm', 'CPP','Other')
+        str = '%-18s%-18s%-18s%-18s%-18s\n' % ('B', 'n', 'm', 'CPP', 'Other')
         print(str)
         with open(path_utility, 'a') as f:
             f.write(str)
         B_list = [200, 400]
         n_list = [100, 120]
         for x in B_list:
-            self.B=x
+            self.B = x
             for y in n_list:
-                self.n=y
+                self.n = y
                 for z in range(30):
                     worker_list, task_list = self.loadWorkers(city=city)
                     winner_list = self.off_policy_CPP(worker_list=worker_list, budget=self.B)
@@ -603,24 +692,26 @@ class Policy:
             with open(path_utility, 'a') as f:
                 f.write('\n')
 
-# ------online-------
+    # ------online-------
     def run_online(self, city='Tokyo'):
+        # TODO 添加u6，写一个exp3m
         dict_u = {}
-        dict_d={}
-        list_d=[]
+        dict_d = {}
+        list_d = []
         for i in range(count):
-            # print('count:',i)
+            print('count:{}/{}'.format(i+1,count))
             worker_list, task_list = self.loadWorkers(city=city)
             u1, d1 = self.online_policy_OACP(worker_list=worker_list, budget=self.B, Time=self.T)
             u2, d2 = self.online_policy_Optimal(worker_list=worker_list, budget=self.B, Time=self.T)
             u3, d3 = self.online_policy_UCB_MB(worker_list=worker_list, budget=self.B, Time=self.T)
             u4, d4 = self.online_policy_AUCB(worker_list=worker_list, budget=self.B, Time=self.T)
             u5, d5 = self.online_policy_LLR(worker_list=worker_list, budget=self.B, Time=self.T)
-            dict_u[i] = [u1, u2, u3, u4, u5]
-            dict_d[i] = [d1, d2, d3, d4, d5]
+            u6, d6 = self.online_policy_Exp3M(worker_list=worker_list, budget=self.B, Time=self.T)
+            dict_u[i] = [u1, u2, u3, u4, u5, u6]
+            dict_d[i] = [d1, d2, d3, d4, d5, d6]
             # print('0--------------',d1==d2)
-        for j in range(5):
-            dic_x={}
+        for j in range(6):
+            dic_x = {}
             for t in range(1, self.T):
                 dic_x[t] = np.mean([dict_d[i][j][t] for i in dict_d.keys()])
             list_d.append(dic_x)
@@ -630,17 +721,25 @@ class Policy:
         u3 = np.mean([dict_u[i][2] for i in dict_u.keys()])
         u4 = np.mean([dict_u[i][3] for i in dict_u.keys()])
         u5 = np.mean([dict_u[i][4] for i in dict_u.keys()])
-        return [u1,u2,u3,u4,u5], list_d
+        u6 = np.mean([dict_u[i][5] for i in dict_u.keys()])
+        # transform the dict_u to df, and save it
+        df = pd.DataFrame(
+            [dict_u[i] for i in sorted(dict_u.keys())],
+            columns=['OACP','Optimal','UCB_MB','AUCB','LLR','Exp3M']
+        )
+        df.to_csv('result.csv',index=False)
+
+        return [u1, u2, u3, u4, u5, u6], list_d
 
     def calDict(self, dic, t):
-        return sum([dic[i] for i in range(1,t+1)])
+        return sum([dic[i] for i in range(1, t + 1)])
 
     def run_online_B(self, city='Tokyo'):
         self.reset()
-        path_utility = result_address+'\online_B_utility_'+city+'.txt'
-        path_regret = result_address + '\online_B_regret_'+city+'.txt'
-        str='%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('T', 'OCAP',
-                                                  'Optimal', 'UCB_MB', 'AUCB','LLR')
+        path_utility = result_address + '\online_B_utility_' + city + '.txt'
+        path_regret = result_address + '\online_B_regret_' + city + '.txt'
+        str = '%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('T', 'OCAP',
+                                                    'Optimal', 'UCB_MB', 'AUCB', 'LLR')
         print(str)
         with open(path_utility, 'a') as f:
             f.write(str)
@@ -654,44 +753,46 @@ class Policy:
                 self.B, utility_list[0], utility_list[1], utility_list[2],
                 utility_list[3], utility_list[4]))
             with open(path_utility, 'a') as f:
-                f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' %  (
-                self.B, utility_list[0], utility_list[1], utility_list[2],
-                utility_list[3], utility_list[4]))
+                f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
+                    self.B, utility_list[0], utility_list[1], utility_list[2],
+                    utility_list[3], utility_list[4]))
             with open(path_regret, 'a') as f:
-                f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' %  (
-                self.B, utility_list[1]-utility_list[0], 0, utility_list[1]-utility_list[2],
-                utility_list[1]-utility_list[3], utility_list[1]-utility_list[4]))
-
+                f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
+                    self.B, utility_list[1] - utility_list[0], 0, utility_list[1] - utility_list[2],
+                    utility_list[1] - utility_list[3], utility_list[1] - utility_list[4]))
 
 
 def run_online_T(self, city='Tokyo'):
-        self.reset()
-        path_utility = result_address+'\online_T_utility_'+city+'.txt'
-        path_regret = result_address + '\online_T_regret_'+city+'.txt'
-        str='%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('T', 'OCAP',
-                                                  'Optimal', 'UCB_MB', 'AUCB','LLR')
-        print(str)
+    self.reset()
+    path_utility = result_address + '\online_T_utility_' + city + '.txt'
+    path_regret = result_address + '\online_T_regret_' + city + '.txt'
+    str = '%-18s%-18s%-18s%-18s%-18s%-18s\n' % ('T', 'OCAP',
+                                                'Optimal', 'UCB_MB', 'AUCB', 'LLR')
+    print(str)
+    with open(path_utility, 'a') as f:
+        f.write(str)
+    with open(path_regret, 'a') as f:
+        f.write(str)
+    utility_list, dict_list = self.run_online(city=city)
+    for t in range(5, self.T, 5):
+        print('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f' % (
+            t, self.calDict(dict_list[0], t), self.calDict(dict_list[1], t), self.calDict(dict_list[2], t),
+            self.calDict(dict_list[3], t), self.calDict(dict_list[4], t)))
         with open(path_utility, 'a') as f:
-            f.write(str)
+            f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
+                t, self.calDict(dict_list[0], t), self.calDict(dict_list[1], t), self.calDict(dict_list[2], t),
+                self.calDict(dict_list[3], t), self.calDict(dict_list[4], t)))
         with open(path_regret, 'a') as f:
-            f.write(str)
-        utility_list, dict_list = self.run_online(city=city)
-        for t in range(5,self.T,5):
-            print('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f' % (
-                t, self.calDict(dict_list[0],t), self.calDict(dict_list[1],t), self.calDict(dict_list[2],t),
-                self.calDict(dict_list[3],t), self.calDict(dict_list[4],t)))
-            with open(path_utility, 'a') as f:
-                f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
-                t, self.calDict(dict_list[0],t), self.calDict(dict_list[1],t), self.calDict(dict_list[2],t),
-                self.calDict(dict_list[3],t), self.calDict(dict_list[4],t)))
-            with open(path_regret, 'a') as f:
-                f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
-                t,self.calDict(dict_list[1],t)-self.calDict(dict_list[0],t), 0, self.calDict(dict_list[1],t)-self.calDict(dict_list[2],t),
-                self.calDict(dict_list[1],t)-self.calDict(dict_list[3],t), self.calDict(dict_list[1],t)-self.calDict(dict_list[4],t)))
+            f.write('%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f%-18.2f\n' % (
+                t, self.calDict(dict_list[1], t) - self.calDict(dict_list[0], t), 0,
+                self.calDict(dict_list[1], t) - self.calDict(dict_list[2], t),
+                self.calDict(dict_list[1], t) - self.calDict(dict_list[3], t),
+                self.calDict(dict_list[1], t) - self.calDict(dict_list[4], t)))
 
 
 if __name__ == '__main__':
-    p=Policy()
+    p = Policy()
+    p.run_online(city='Tokyo')
     # d=p.calBudget()
     # d=p.caln()
     # p.run_offline_B(city='Tokyo')
@@ -707,11 +808,3 @@ if __name__ == '__main__':
     # p.run_offline_time(city='Tokyo')
     # p.run_online_B(city='Tokyo')
     # p.run_online_B(city='New York')
-
-
-
-
-
-
-
-
